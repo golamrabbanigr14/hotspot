@@ -1,59 +1,55 @@
 <?php
-// index.php - GalaxyRAD WISP & Hotspot Master System
+// index.php - GalaxyRAD WISP & Hotspot Master System (SQLite Version for Render)
 session_start();
 
 // ==========================================
-// Database Configuration (InfinityFree)
+// Database Configuration (SQLite for Render)
 // ==========================================
-$host = 'sql104.infinityfree.com';
-$db   = 'if0_43001536_rabbaninet';
-$user = 'if0_43001536';
-$pass = 'Rabbani2026';
-// ==========================================
+$db_file = __DIR__ . '/database.sqlite';
 
 try {
-    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
+    $pdo = new PDO("sqlite:" . $db_file);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
-    // Robust Database Schema
+    // Robust Database Schema for SQLite
     $pdo->exec("CREATE TABLE IF NOT EXISTS routers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        ip_address VARCHAR(100) NOT NULL,
-        username VARCHAR(50) NOT NULL,
-        password VARCHAR(100),
-        port INT DEFAULT 8728,
-        status VARCHAR(20) DEFAULT 'Online',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        ip_address TEXT NOT NULL,
+        username TEXT NOT NULL,
+        password TEXT,
+        port INTEGER DEFAULT 8728,
+        status TEXT DEFAULT 'Online',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS operators (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        username VARCHAR(50) NOT NULL UNIQUE,
-        password VARCHAR(100) NOT NULL,
-        status VARCHAR(20) DEFAULT 'Active',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        status TEXT DEFAULT 'Active',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS packages (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        package_name VARCHAR(100) NOT NULL,
-        price DECIMAL(10,2) NOT NULL,
-        validity VARCHAR(50) NOT NULL,
-        speed_limit VARCHAR(50) DEFAULT '1M/1M',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_name TEXT NOT NULL,
+        price REAL NOT NULL,
+        validity TEXT NOT NULL,
+        speed_limit TEXT DEFAULT '1M/1M',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS vouchers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        code VARCHAR(50) NOT NULL UNIQUE,
-        password VARCHAR(50) NOT NULL,
-        package_id INT,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        package_id INTEGER,
         router_ids TEXT NOT NULL,
-        batch_id VARCHAR(50),
-        status VARCHAR(20) DEFAULT 'Unused',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        batch_id TEXT,
+        status TEXT DEFAULT 'Unused',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
 
 } catch (Exception $e) {
@@ -223,7 +219,7 @@ if (!isset($_SESSION['user'])):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - GalaxyRAD WISP</title>
+    <title>Login - GalaxyRAD</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen">
@@ -303,8 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $target_routers = $stmt_r->fetchAll();
 
                 $stmt = $pdo->prepare("INSERT INTO vouchers (code, password, package_id, router_ids, batch_id, status) VALUES (?, ?, ?, ?, ?, 'Unused')");
-                $gen_count = 0;
-
+                
                 for ($i = 0; $i < $quantity; $i++) {
                     $code = rand(100000, 999999);
                     $password = $code;
@@ -320,7 +315,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ));
                             }
                         }
-                        $gen_count++;
                     } catch(Exception $ex) {}
                 }
                 
