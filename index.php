@@ -1,17 +1,13 @@
 <?php
-// index.php - GalaxyRAD WISP & Hotspot Master System (SQLite Version for Render)
+// index.php - GalaxyRAD WISP & Hotspot Master System (Fixed SQLite & API Connection)
 session_start();
 
-// ==========================================
-// Database Configuration (SQLite for Render)
-// ==========================================
 $db_file = __DIR__ . '/database.sqlite';
 
 try {
     $pdo = new PDO("sqlite:" . $db_file);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
-    // Robust Database Schema for SQLite
     $pdo->exec("CREATE TABLE IF NOT EXISTS routers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -56,17 +52,14 @@ try {
     die("<div style='font-family:sans-serif; padding:20px; background:#fee2e2; color:#991b1b;'>Database Error: " . htmlspecialchars($e->getMessage()) . "</div>");
 }
 
-// ==========================================
-// MikroTik API Class Helper
-// ==========================================
 class RouterosAPI {
     var $debug = false;
     var $connected = false;
     var $port = 8728;
     var $ssl = false;
-    var $timeout = 3;
-    var $attempts = 1;
-    var $delay = 3;
+    var $timeout = 4;
+    var $attempts = 2;
+    var $delay = 1;
     private $socket = 0;
     private $error_no;
     private $error_str;
@@ -75,16 +68,16 @@ class RouterosAPI {
         for ($i = 1; $i <= $this->attempts; $i++) {
             $this->connected = false;
             $protocol = $this->ssl ? 'ssl://' : '';
-            $this->socket = @fsockopen($protocol . $ip, $this->port, $this->error_no, $this->error_str, $this->timeout);
+            $this->socket = @fsockopen($protocol . $ip, (int)$this->port, $this->error_no, $this->error_str, $this->timeout);
             if ($this->socket) {
-                socket_set_timeout($this->socket, $this->timeout);
+                stream_set_timeout($this->socket, $this->timeout);
                 if ($this->login($login, $password)) {
                     $this->connected = true;
                     break;
                 }
-                fclose($this->socket);
+                @fclose($this->socket);
             }
-            sleep($this->delay);
+            usleep(500000);
         }
         return $this->connected;
     }
@@ -117,8 +110,8 @@ class RouterosAPI {
 
     private function write($commun, $space = true) {
         if ($this->debug) echo "Sending: $commun<br>";
-        fwrite($this->socket, $this->encodeLength(strlen($commun)) . $commun);
-        if ($space) fwrite($this->socket, chr(0));
+        @fwrite($this->socket, $this->encodeLength(strlen($commun)) . $commun);
+        if ($space) @fwrite($this->socket, chr(0));
     }
 
     private function encodeLength($length) {
@@ -138,21 +131,22 @@ class RouterosAPI {
     private function read_response() {
         $result = array();
         while (true) {
-            $byte = ord(fread($this->socket, 1));
+            $byte = @ord(@fread($this->socket, 1));
+            if ($byte === false) break;
             $length = 0;
             if (($byte & 0x80) == 0x00) {
                 $length = $byte;
             } elseif (($byte & 0xC0) == 0x80) {
-                $length = (($byte & 0x3F) << 8) + ord(fread($this->socket, 1));
+                $length = (($byte & 0x3F) << 8) + @ord(@fread($this->socket, 1));
             } elseif (($byte & 0xE0) == 0xC0) {
-                $length = (($byte & 0x1F) << 16) + (ord(fread($this->socket, 1)) << 8) + ord(fread($this->socket, 1));
+                $length = (($byte & 0x1F) << 16) + (@ord(@fread($this->socket, 1)) << 8) + @ord(@fread($this->socket, 1));
             } elseif (($byte & 0xF0) == 0xE0) {
-                $length = (($byte & 0x0F) << 24) + (ord(fread($this->socket, 1)) << 16) + (ord(fread($this->socket, 1)) << 8) + ord(fread($this->socket, 1));
+                $length = (($byte & 0x0F) << 24) + (@ord(@fread($this->socket, 1)) << 16) + (@ord(@fread($this->socket, 1)) << 8) + @ord(@fread($this->socket, 1));
             } else {
-                $length = (ord(fread($this->socket, 1)) << 24) + (ord(fread($this->socket, 1)) << 16) + (ord(fread($this->socket, 1)) << 8) + ord(fread($this->socket, 1));
+                $length = (@ord(@fread($this->socket, 1)) << 24) + (@ord(@fread($this->socket, 1)) << 16) + (@ord(@fread($this->socket, 1)) << 8) + @ord(@fread($this->socket, 1));
             }
             if ($length > 0) {
-                $result[] = fread($this->socket, $length);
+                $result[] = @fread($this->socket, $length);
             } else {
                 break;
             }
@@ -174,14 +168,12 @@ class RouterosAPI {
     }
 }
 
-// Handle Logout
 if (isset($_GET['logout'])) {
     session_destroy();
     header("Location: index.php");
     exit();
 }
 
-// Authentication Handling
 $login_error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     $username = trim($_POST['username']);
@@ -247,7 +239,6 @@ if (!isset($_SESSION['user'])):
 </html>
 <?php exit(); endif;
 
-// Actions Handling
 $success_msg = '';
 $error_msg = '';
 $print_batch = isset($_GET['print_batch']) ? trim($_GET['print_batch']) : '';
@@ -307,7 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt->execute([$code, $password, $package_id, $router_ids_str, $batch_id]);
                         foreach($target_routers as $tr) {
                             $API = new RouterosAPI();
-                            if (@$API->connect($tr['ip_address'], $tr['username'], $tr['password'])) {
+                            $API->port = (int)$tr['port'];
+                            if ($API->connect($tr['ip_address'], $tr['username'], $tr['password'])) {
                                 $API->comm("/ip/hotspot/user/add", array(
                                     "name" => $code,
                                     "password" => $password,
@@ -350,7 +342,8 @@ try {
 
     foreach($routers as &$r) {
         $API = new RouterosAPI();
-        if (@$API->connect($r['ip_address'], $r['username'], $r['password'])) {
+        $API->port = (int)$r['port'];
+        if ($API->connect($r['ip_address'], $r['username'], $r['password'])) {
             $r['live_status'] = 'Online';
             $all_r_users = $API->comm("/ip/hotspot/user/print");
             $r['total_users'] = is_array($all_r_users) ? count($all_r_users) : 0;
@@ -382,7 +375,8 @@ if (isset($_GET['inspect'])) {
         if ($rt['id'] == $insp_id) {
             $inspect_router = $rt;
             $API = new RouterosAPI();
-            if (@$API->connect($rt['ip_address'], $rt['username'], $rt['password'])) {
+            $API->port = (int)$rt['port'];
+            if ($API->connect($rt['ip_address'], $rt['username'], $rt['password'])) {
                 $inspect_users = $API->comm("/ip/hotspot/user/print");
                 $inspect_active = $API->comm("/ip/hotspot/active/print");
             }
@@ -467,7 +461,7 @@ if (isset($_GET['inspect'])) {
                 <a href="index.php" class="flex items-center space-x-3 px-3.5 py-2.5 rounded-xl bg-orange-600 text-white font-bold"><span>📊</span> <span>Dashboard</span></a>
             </nav>
         </div>
-        <div class="p-4 border-t border-slate-800 text-xs text-slate-500">GalaxyRAD API v9.5</div>
+        <div class="p-4 border-t border-slate-800 text-xs text-slate-500">GalaxyRAD API v9.6</div>
     </aside>
 
     <div class="flex-1 flex flex-col min-w-0 overflow-y-auto no-print">
@@ -659,7 +653,7 @@ if (isset($_GET['inspect'])) {
 
             <div class="bg-slate-950 border border-slate-800 rounded-2xl shadow overflow-hidden">
                 <div class="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="text-xs font-bold text-slate-300 uppercase">🎟️ Recent Voucher Batches (Click 'Print Batch' to generate cards PDF)</h3>
+                    <h3 class="text-xs font-bold text-slate-300 uppercase">🎟️ Recent Voucher Batches</h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm text-slate-400">
@@ -691,8 +685,8 @@ if (isset($_GET['inspect'])) {
 
             <div class="bg-slate-950 border border-slate-800 rounded-2xl shadow overflow-hidden">
                 <div class="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="text-xs font-bold text-slate-300 uppercase">Connected Routers (Click 'Inspect' to view live users inside each router)</h3>
-                    <span class="text-[10px] bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded border border-emerald-800 font-bold">Multi-Router API Sync Active</span>
+                    <h3 class="text-xs font-bold text-slate-300 uppercase">Connected Routers (Click 'Inspect' to view live users)</h3>
+                    <span class="text-[10px] bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded border border-emerald-800 font-bold">API Port Matcher Active</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm text-slate-400">
